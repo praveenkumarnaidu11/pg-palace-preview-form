@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -8,7 +8,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, User, Phone, Mail, DollarSign, Wifi, WashingMachine, Fingerprint, AirVent, Dumbbell, Battery, Droplet, ParkingMeter, Bath, Image, FileImage, FileVideo } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import ProgressTracker from "@/components/ProgressTracker";
+import { MapPin, User, Phone, Mail, DollarSign, Wifi, WashingMachine, Fingerprint, AirVent, Dumbbell, Battery, Droplet, ParkingMeter, Bath, Image, FileImage, FileVideo, ChevronRight } from "lucide-react";
 
 type SharingType = {
   [key: string]: number | null;
@@ -49,9 +51,24 @@ interface FormData {
   videoLink: string;
 }
 
+type FormStep = 'basic' | 'owner' | 'pricing' | 'amenities' | 'media';
+
+const STEPS: { [key in FormStep]: number } = {
+  'basic': 1,
+  'owner': 2,
+  'pricing': 3,
+  'amenities': 4,
+  'media': 5
+};
+
+const STEP_LABELS = ['Basic Info', 'Owner Details', 'Pricing', 'Amenities', 'Media'];
+
 const PGListingForm: React.FC = () => {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [showPreview, setShowPreview] = useState(false);
+  const [currentStep, setCurrentStep] = useState<FormStep>('basic');
+  const [formProgress, setFormProgress] = useState(0);
   const [formData, setFormData] = useState<FormData>({
     pgName: '',
     address: '',
@@ -90,6 +107,53 @@ const PGListingForm: React.FC = () => {
     images: null,
     videoLink: '',
   });
+
+  // Calculate form progress
+  useEffect(() => {
+    // Count filled fields
+    let filledCount = 0;
+    let totalFields = 0;
+    
+    // Basic info (5 fields)
+    const basicFields = ['pgName', 'address', 'googleMapsLink', 'pgType', 'preferredTenants'];
+    basicFields.forEach(field => {
+      totalFields++;
+      if (formData[field as keyof FormData]) filledCount++;
+    });
+    
+    // Owner details (5 fields)
+    const ownerFields = ['ownerName', 'primaryMobile', 'secondaryMobile', 'whatsappNumber', 'email'];
+    ownerFields.forEach(field => {
+      totalFields++;
+      if (formData[field as keyof FormData]) filledCount++;
+    });
+    
+    // Pricing (7 fields - 5 sharing types + deposit + refund policy + notice period)
+    totalFields += 8;
+    Object.values(formData.sharingPrices).forEach(price => {
+      if (price !== null) filledCount++;
+    });
+    if (formData.deposit) filledCount++;
+    if (formData.refundPolicy) filledCount++;
+    if (formData.noticePeriod) filledCount++;
+    
+    // Amenities (11 fields - 10 checkbox amenities + bathroom type + other amenities)
+    totalFields += 12;
+    Object.values(formData.amenities).forEach(checked => {
+      if (checked) filledCount++;
+    });
+    if (formData.bathroomType) filledCount++;
+    if (formData.otherAmenities) filledCount++;
+    
+    // Media (2 fields)
+    totalFields += 2;
+    if (formData.images) filledCount++;
+    if (formData.videoLink) filledCount++;
+    
+    // Calculate percentage
+    const progress = Math.round((filledCount / totalFields) * 100);
+    setFormProgress(progress);
+  }, [formData]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -130,6 +194,126 @@ const PGListingForm: React.FC = () => {
         description: "Please select between 1 and 10 images.",
         variant: "destructive",
       });
+    }
+  };
+
+  const validateStep = (step: FormStep): boolean => {
+    switch (step) {
+      case 'basic':
+        if (!formData.pgName || !formData.address) {
+          toast({
+            title: "Required Fields Missing",
+            description: "Please fill in PG Name and Full Address",
+            variant: "destructive",
+          });
+          return false;
+        }
+        return true;
+        
+      case 'owner':
+        if (!formData.ownerName || !formData.primaryMobile || !formData.email) {
+          toast({
+            title: "Required Fields Missing",
+            description: "Please fill in Owner Name, Primary Mobile, and Email",
+            variant: "destructive",
+          });
+          return false;
+        }
+        
+        // Validate mobile number format
+        const mobileRegex = /^\d{10}$/;
+        if (!mobileRegex.test(formData.primaryMobile)) {
+          toast({
+            title: "Validation Error",
+            description: "Primary mobile number must be 10 digits",
+            variant: "destructive",
+          });
+          return false;
+        }
+        
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.email)) {
+          toast({
+            title: "Validation Error",
+            description: "Please enter a valid email address",
+            variant: "destructive",
+          });
+          return false;
+        }
+        return true;
+        
+      case 'pricing':
+        // At least one sharing price should be entered
+        const hasPrice = Object.values(formData.sharingPrices).some(price => price !== null && price > 0);
+        if (!hasPrice) {
+          toast({
+            title: "Validation Error",
+            description: "Enter at least one sharing option price",
+            variant: "destructive",
+          });
+          return false;
+        }
+        return true;
+        
+      case 'amenities':
+        // No validation required for amenities
+        return true;
+        
+      case 'media':
+        // At least one image is required
+        if (!formData.images || formData.images.length === 0) {
+          toast({
+            title: "Validation Error",
+            description: "Please upload at least one image",
+            variant: "destructive",
+          });
+          return false;
+        }
+        return true;
+        
+      default:
+        return true;
+    }
+  };
+
+  const nextStep = () => {
+    if (!validateStep(currentStep)) return;
+    
+    switch (currentStep) {
+      case 'basic':
+        setCurrentStep('owner');
+        break;
+      case 'owner':
+        setCurrentStep('pricing');
+        break;
+      case 'pricing':
+        setCurrentStep('amenities');
+        break;
+      case 'amenities':
+        setCurrentStep('media');
+        break;
+      case 'media':
+        setShowPreview(true);
+        window.scrollTo(0, 0);
+        break;
+    }
+  };
+
+  const prevStep = () => {
+    switch (currentStep) {
+      case 'owner':
+        setCurrentStep('basic');
+        break;
+      case 'pricing':
+        setCurrentStep('owner');
+        break;
+      case 'amenities':
+        setCurrentStep('pricing');
+        break;
+      case 'media':
+        setCurrentStep('amenities');
+        break;
     }
   };
 
@@ -210,489 +394,547 @@ const PGListingForm: React.FC = () => {
     console.log("Form data submitted:", formData);
   };
 
-  return (
-    <div className="container mx-auto py-8 px-4 md:px-6">
-      {!showPreview ? (
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Create PG Listing</h2>
-              <p className="text-gray-500 mb-4">Fill in the details to list your PG accommodation</p>
-            </div>
-
-            {/* Basic Info Section */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
-                <MapPin className="mr-2 h-5 w-5 text-purple-500" />
-                Basic Information
-              </h3>
-              <Separator className="mb-6" />
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 'basic':
+        return (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
+              <MapPin className="mr-2 h-5 w-5 text-purple-500" />
+              Basic Information
+            </h3>
+            <Separator className="mb-6" />
+            
+            <div className="grid grid-cols-1 gap-4 md:gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="pgName">PG Name <span className="text-red-500">*</span></Label>
+                <Input
+                  id="pgName"
+                  name="pgName"
+                  value={formData.pgName}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Comfort Stay PG"
+                  required
+                />
+              </div>
               
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="pgName">PG Name <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="pgName"
-                    name="pgName"
-                    value={formData.pgName}
-                    onChange={handleInputChange}
-                    placeholder="e.g., Comfort Stay PG"
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="address">Full Address <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    placeholder="Full address with landmark"
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="googleMapsLink">Google Maps Link</Label>
-                  <Input
-                    id="googleMapsLink"
-                    name="googleMapsLink"
-                    value={formData.googleMapsLink}
-                    onChange={handleInputChange}
-                    placeholder="https://maps.google.com/..."
-                  />
-                </div>
-                
-                <div className="space-y-3">
-                  <Label>PG Type</Label>
-                  <RadioGroup
-                    defaultValue={formData.pgType}
-                    onValueChange={(value) => handleRadioChange('pgType', value)}
-                    className="flex space-x-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="ladies" id="ladies" />
-                      <Label htmlFor="ladies">Ladies</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="gents" id="gents" />
-                      <Label htmlFor="gents">Gents</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="co-living" id="co-living" />
-                      <Label htmlFor="co-living">Co-living</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-                
-                <div className="space-y-3">
-                  <Label>Preferred Tenants</Label>
-                  <RadioGroup
-                    defaultValue={formData.preferredTenants}
-                    onValueChange={(value) => handleRadioChange('preferredTenants', value)}
-                    className="flex space-x-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="students" id="students" />
-                      <Label htmlFor="students">Students</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="professionals" id="professionals" />
-                      <Label htmlFor="professionals">Professionals</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="anyone" id="anyone" />
-                      <Label htmlFor="anyone">Anyone</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="address">Full Address <span className="text-red-500">*</span></Label>
+                <Input
+                  id="address"
+                  name="address"
+                  value={formData.address}
+                  onChange={handleInputChange}
+                  placeholder="Full address with landmark"
+                  required
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="googleMapsLink">Google Maps Link</Label>
+                <Input
+                  id="googleMapsLink"
+                  name="googleMapsLink"
+                  value={formData.googleMapsLink}
+                  onChange={handleInputChange}
+                  placeholder="https://maps.google.com/..."
+                />
+              </div>
+              
+              <div className="space-y-3">
+                <Label>PG Type</Label>
+                <RadioGroup
+                  defaultValue={formData.pgType}
+                  onValueChange={(value) => handleRadioChange('pgType', value)}
+                  className="flex space-x-4 flex-wrap"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="ladies" id="ladies" />
+                    <Label htmlFor="ladies">Ladies</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="gents" id="gents" />
+                    <Label htmlFor="gents">Gents</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="co-living" id="co-living" />
+                    <Label htmlFor="co-living">Co-living</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+              
+              <div className="space-y-3">
+                <Label>Preferred Tenants</Label>
+                <RadioGroup
+                  defaultValue={formData.preferredTenants}
+                  onValueChange={(value) => handleRadioChange('preferredTenants', value)}
+                  className="flex space-x-4 flex-wrap"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="students" id="students" />
+                    <Label htmlFor="students">Students</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="professionals" id="professionals" />
+                    <Label htmlFor="professionals">Professionals</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="anyone" id="anyone" />
+                    <Label htmlFor="anyone">Anyone</Label>
+                  </div>
+                </RadioGroup>
               </div>
             </div>
-
-            {/* Owner Details Section */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
-                <User className="mr-2 h-5 w-5 text-purple-500" />
-                Owner Details
-              </h3>
-              <Separator className="mb-6" />
+          </div>
+        );
+      
+      case 'owner':
+        return (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
+              <User className="mr-2 h-5 w-5 text-purple-500" />
+              Owner Details
+            </h3>
+            <Separator className="mb-6" />
+            
+            <div className="grid grid-cols-1 gap-4 md:gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="ownerName">Owner Name <span className="text-red-500">*</span></Label>
+                <Input
+                  id="ownerName"
+                  name="ownerName"
+                  value={formData.ownerName}
+                  onChange={handleInputChange}
+                  placeholder="Full name"
+                  required
+                />
+              </div>
               
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="ownerName">Owner Name <span className="text-red-500">*</span></Label>
+              <div className="space-y-2">
+                <Label htmlFor="primaryMobile">Primary Mobile <span className="text-red-500">*</span></Label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+                    +91
+                  </span>
                   <Input
-                    id="ownerName"
-                    name="ownerName"
-                    value={formData.ownerName}
+                    id="primaryMobile"
+                    name="primaryMobile"
+                    value={formData.primaryMobile}
                     onChange={handleInputChange}
-                    placeholder="Full name"
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="primaryMobile">Primary Mobile <span className="text-red-500">*</span></Label>
-                  <div className="flex">
-                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                      +91
-                    </span>
-                    <Input
-                      id="primaryMobile"
-                      name="primaryMobile"
-                      value={formData.primaryMobile}
-                      onChange={handleInputChange}
-                      className="rounded-l-none"
-                      placeholder="10-digit mobile number"
-                      maxLength={10}
-                      pattern="\d{10}"
-                      required
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="secondaryMobile">Secondary Mobile</Label>
-                  <div className="flex">
-                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                      +91
-                    </span>
-                    <Input
-                      id="secondaryMobile"
-                      name="secondaryMobile"
-                      value={formData.secondaryMobile}
-                      onChange={handleInputChange}
-                      className="rounded-l-none"
-                      placeholder="10-digit mobile number"
-                      maxLength={10}
-                      pattern="\d{10}"
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="whatsappNumber">WhatsApp Number</Label>
-                  <div className="flex">
-                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                      +91
-                    </span>
-                    <Input
-                      id="whatsappNumber"
-                      name="whatsappNumber"
-                      value={formData.whatsappNumber}
-                      onChange={handleInputChange}
-                      className="rounded-l-none"
-                      placeholder="WhatsApp number"
-                      maxLength={10}
-                      pattern="\d{10}"
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    placeholder="contact@example.com"
+                    className="rounded-l-none"
+                    placeholder="10-digit mobile number"
+                    maxLength={10}
+                    pattern="\d{10}"
                     required
                   />
                 </div>
               </div>
-            </div>
-
-            {/* Room & Pricing Section */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
-                <DollarSign className="mr-2 h-5 w-5 text-purple-500" />
-                Room & Pricing
-              </h3>
-              <Separator className="mb-6" />
               
-              <p className="text-sm text-gray-500 mb-4">Enter the monthly rent based on sharing type (fill only applicable options)</p>
-              
-              <div className="grid grid-cols-2 gap-6 md:grid-cols-5 mb-6">
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <div key={num} className="space-y-2">
-                    <Label htmlFor={`sharing${num}`}>{num === 1 ? 'Single' : `${num} Sharing`}</Label>
-                    <div className="flex">
-                      <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                        ₹
-                      </span>
-                      <Input
-                        id={`sharing${num}`}
-                        type="number"
-                        min="0"
-                        value={formData.sharingPrices[num.toString()] === null ? '' : formData.sharingPrices[num.toString()]}
-                        onChange={(e) => handleSharingPriceChange(num.toString(), e.target.value)}
-                        className="rounded-l-none"
-                        placeholder="Amount"
-                      />
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <Label htmlFor="secondaryMobile">Secondary Mobile</Label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+                    +91
+                  </span>
+                  <Input
+                    id="secondaryMobile"
+                    name="secondaryMobile"
+                    value={formData.secondaryMobile}
+                    onChange={handleInputChange}
+                    className="rounded-l-none"
+                    placeholder="10-digit mobile number"
+                    maxLength={10}
+                    pattern="\d{10}"
+                  />
+                </div>
               </div>
               
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="deposit">Security Deposit</Label>
+              <div className="space-y-2">
+                <Label htmlFor="whatsappNumber">WhatsApp Number</Label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+                    +91
+                  </span>
+                  <Input
+                    id="whatsappNumber"
+                    name="whatsappNumber"
+                    value={formData.whatsappNumber}
+                    onChange={handleInputChange}
+                    className="rounded-l-none"
+                    placeholder="WhatsApp number"
+                    maxLength={10}
+                    pattern="\d{10}"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  placeholder="contact@example.com"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+        );
+      
+      case 'pricing':
+        return (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
+              <DollarSign className="mr-2 h-5 w-5 text-purple-500" />
+              Room & Pricing
+            </h3>
+            <Separator className="mb-6" />
+            
+            <p className="text-sm text-gray-500 mb-4">Enter the monthly rent based on sharing type (fill only applicable options)</p>
+            
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-5 mb-6">
+              {[1, 2, 3, 4, 5].map((num) => (
+                <div key={num} className="space-y-2">
+                  <Label htmlFor={`sharing${num}`}>{num === 1 ? 'Single' : `${num} Sharing`}</Label>
                   <div className="flex">
                     <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
                       ₹
                     </span>
                     <Input
-                      id="deposit"
-                      name="deposit"
+                      id={`sharing${num}`}
                       type="number"
                       min="0"
-                      value={formData.deposit}
-                      onChange={handleInputChange}
+                      value={formData.sharingPrices[num.toString()] === null ? '' : formData.sharingPrices[num.toString()]}
+                      onChange={(e) => handleSharingPriceChange(num.toString(), e.target.value)}
                       className="rounded-l-none"
                       placeholder="Amount"
                     />
                   </div>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="refundPolicy">Refund Policy</Label>
-                  <Input
-                    id="refundPolicy"
-                    name="refundPolicy"
-                    value={formData.refundPolicy}
-                    onChange={handleInputChange}
-                    placeholder="e.g., Fully refundable after deductions"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="noticePeriod">Notice Period</Label>
-                  <Input
-                    id="noticePeriod"
-                    name="noticePeriod"
-                    value={formData.noticePeriod}
-                    onChange={handleInputChange}
-                    placeholder="e.g., 1 month"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Amenities Section */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h3 className="text-lg font-medium mb-4 text-gray-900">Amenities</h3>
-              <Separator className="mb-6" />
-              
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-5 mb-6">
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="wifi" 
-                    checked={formData.amenities.wifi}
-                    onCheckedChange={() => handleCheckboxChange('wifi')}
-                  />
-                  <Label htmlFor="wifi" className="flex items-center">
-                    <Wifi className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Wi-Fi
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="washingMachine" 
-                    checked={formData.amenities.washingMachine}
-                    onCheckedChange={() => handleCheckboxChange('washingMachine')}
-                  />
-                  <Label htmlFor="washingMachine" className="flex items-center">
-                    <WashingMachine className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Washing Machine
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="biometric" 
-                    checked={formData.amenities.biometric}
-                    onCheckedChange={() => handleCheckboxChange('biometric')}
-                  />
-                  <Label htmlFor="biometric" className="flex items-center">
-                    <Fingerprint className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Biometric
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="ac" 
-                    checked={formData.amenities.ac}
-                    onCheckedChange={() => handleCheckboxChange('ac')}
-                  />
-                  <Label htmlFor="ac" className="flex items-center">
-                    <AirVent className="mr-1.5 h-4 w-4 text-purple-500" />
-                    AC
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="gym" 
-                    checked={formData.amenities.gym}
-                    onCheckedChange={() => handleCheckboxChange('gym')}
-                  />
-                  <Label htmlFor="gym" className="flex items-center">
-                    <Dumbbell className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Gym
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="powerBackup" 
-                    checked={formData.amenities.powerBackup}
-                    onCheckedChange={() => handleCheckboxChange('powerBackup')}
-                  />
-                  <Label htmlFor="powerBackup" className="flex items-center">
-                    <Battery className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Power Backup
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="geyser" 
-                    checked={formData.amenities.geyser}
-                    onCheckedChange={() => handleCheckboxChange('geyser')}
-                  />
-                  <Label htmlFor="geyser" className="flex items-center">
-                    <Droplet className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Geyser
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="roWater" 
-                    checked={formData.amenities.roWater}
-                    onCheckedChange={() => handleCheckboxChange('roWater')}
-                  />
-                  <Label htmlFor="roWater" className="flex items-center">
-                    <Droplet className="mr-1.5 h-4 w-4 text-purple-500" />
-                    RO Water
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="parking" 
-                    checked={formData.amenities.parking}
-                    onCheckedChange={() => handleCheckboxChange('parking')}
-                  />
-                  <Label htmlFor="parking" className="flex items-center">
-                    <ParkingMeter className="mr-1.5 h-4 w-4 text-purple-500" />
-                    Parking
-                  </Label>
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="housekeeping" 
-                    checked={formData.amenities.housekeeping}
-                    onCheckedChange={() => handleCheckboxChange('housekeeping')}
-                  />
-                  <Label htmlFor="housekeeping">Housekeeping</Label>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="space-y-3">
-                  <Label>Bathroom Type</Label>
-                  <RadioGroup
-                    defaultValue={formData.bathroomType}
-                    onValueChange={(value) => handleRadioChange('bathroomType', value)}
-                    className="flex space-x-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="attached" id="attached" />
-                      <Label htmlFor="attached">Attached</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="common" id="common" />
-                      <Label htmlFor="common">Common</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="both" id="both" />
-                      <Label htmlFor="both">Both</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="otherAmenities">Other Amenities</Label>
-                  <Textarea
-                    id="otherAmenities"
-                    name="otherAmenities"
-                    value={formData.otherAmenities}
-                    onChange={handleInputChange}
-                    placeholder="Describe any additional amenities..."
-                    rows={3}
-                  />
-                </div>
-              </div>
+              ))}
             </div>
             
-            {/* Media Uploads Section */}
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-              <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
-                <Image className="mr-2 h-5 w-5 text-purple-500" />
-                Media Uploads
-              </h3>
-              <Separator className="mb-6" />
-              
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="images">Upload Images (1-10) <span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="deposit">Security Deposit</Label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+                    ₹
+                  </span>
                   <Input
-                    id="images"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleImageChange}
-                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
-                  />
-                  <p className="text-xs text-gray-500 mt-2">
-                    Upload high-quality images of rooms, amenities, and common areas. Maximum 10 images.
-                  </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="videoLink">Video Link (Optional)</Label>
-                  <Input
-                    id="videoLink"
-                    name="videoLink"
-                    value={formData.videoLink}
+                    id="deposit"
+                    name="deposit"
+                    type="number"
+                    min="0"
+                    value={formData.deposit}
                     onChange={handleInputChange}
-                    placeholder="YouTube or other video link"
+                    className="rounded-l-none"
+                    placeholder="Amount"
                   />
-                  <p className="text-xs text-gray-500 mt-2">
-                    Add a link to a walkthrough video of your PG accommodation
-                  </p>
                 </div>
               </div>
-            </div>
-            
-            <div className="flex justify-end">
-              <Button type="submit" className="bg-purple-600 hover:bg-purple-700">
-                Preview Listing
-              </Button>
+              
+              <div className="space-y-2">
+                <Label htmlFor="refundPolicy">Refund Policy</Label>
+                <Input
+                  id="refundPolicy"
+                  name="refundPolicy"
+                  value={formData.refundPolicy}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Fully refundable after deductions"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="noticePeriod">Notice Period</Label>
+                <Input
+                  id="noticePeriod"
+                  name="noticePeriod"
+                  value={formData.noticePeriod}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 1 month"
+                />
+              </div>
             </div>
           </div>
-        </form>
+        );
+      
+      case 'amenities':
+        return (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 className="text-lg font-medium mb-4 text-gray-900">Amenities</h3>
+            <Separator className="mb-6" />
+            
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5 mb-6">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="wifi" 
+                  checked={formData.amenities.wifi}
+                  onCheckedChange={() => handleCheckboxChange('wifi')}
+                />
+                <Label htmlFor="wifi" className="flex items-center">
+                  <Wifi className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Wi-Fi
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="washingMachine" 
+                  checked={formData.amenities.washingMachine}
+                  onCheckedChange={() => handleCheckboxChange('washingMachine')}
+                />
+                <Label htmlFor="washingMachine" className="flex items-center">
+                  <WashingMachine className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Washing Machine
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="biometric" 
+                  checked={formData.amenities.biometric}
+                  onCheckedChange={() => handleCheckboxChange('biometric')}
+                />
+                <Label htmlFor="biometric" className="flex items-center">
+                  <Fingerprint className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Biometric
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="ac" 
+                  checked={formData.amenities.ac}
+                  onCheckedChange={() => handleCheckboxChange('ac')}
+                />
+                <Label htmlFor="ac" className="flex items-center">
+                  <AirVent className="mr-1.5 h-4 w-4 text-purple-500" />
+                  AC
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="gym" 
+                  checked={formData.amenities.gym}
+                  onCheckedChange={() => handleCheckboxChange('gym')}
+                />
+                <Label htmlFor="gym" className="flex items-center">
+                  <Dumbbell className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Gym
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="powerBackup" 
+                  checked={formData.amenities.powerBackup}
+                  onCheckedChange={() => handleCheckboxChange('powerBackup')}
+                />
+                <Label htmlFor="powerBackup" className="flex items-center">
+                  <Battery className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Power Backup
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="geyser" 
+                  checked={formData.amenities.geyser}
+                  onCheckedChange={() => handleCheckboxChange('geyser')}
+                />
+                <Label htmlFor="geyser" className="flex items-center">
+                  <Droplet className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Geyser
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="roWater" 
+                  checked={formData.amenities.roWater}
+                  onCheckedChange={() => handleCheckboxChange('roWater')}
+                />
+                <Label htmlFor="roWater" className="flex items-center">
+                  <Droplet className="mr-1.5 h-4 w-4 text-purple-500" />
+                  RO Water
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="parking" 
+                  checked={formData.amenities.parking}
+                  onCheckedChange={() => handleCheckboxChange('parking')}
+                />
+                <Label htmlFor="parking" className="flex items-center">
+                  <ParkingMeter className="mr-1.5 h-4 w-4 text-purple-500" />
+                  Parking
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="housekeeping" 
+                  checked={formData.amenities.housekeeping}
+                  onCheckedChange={() => handleCheckboxChange('housekeeping')}
+                />
+                <Label htmlFor="housekeeping">Housekeeping</Label>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <Label>Bathroom Type</Label>
+                <RadioGroup
+                  defaultValue={formData.bathroomType}
+                  onValueChange={(value) => handleRadioChange('bathroomType', value)}
+                  className="flex flex-wrap space-x-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="attached" id="attached" />
+                    <Label htmlFor="attached">Attached</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="common" id="common" />
+                    <Label htmlFor="common">Common</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="both" id="both" />
+                    <Label htmlFor="both">Both</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="otherAmenities">Other Amenities</Label>
+                <Textarea
+                  id="otherAmenities"
+                  name="otherAmenities"
+                  value={formData.otherAmenities}
+                  onChange={handleInputChange}
+                  placeholder="Describe any additional amenities..."
+                  rows={3}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      
+      case 'media':
+        return (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-100">
+            <h3 className="text-lg font-medium flex items-center mb-4 text-gray-900">
+              <Image className="mr-2 h-5 w-5 text-purple-500" />
+              Media Uploads
+            </h3>
+            <Separator className="mb-6" />
+            
+            <div className="grid grid-cols-1 gap-4 md:gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="images">Upload Images (1-10) <span className="text-red-500">*</span></Label>
+                <Input
+                  id="images"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageChange}
+                  className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Upload high-quality images of rooms, amenities, and common areas. Maximum 10 images.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="videoLink">Video Link (Optional)</Label>
+                <Input
+                  id="videoLink"
+                  name="videoLink"
+                  value={formData.videoLink}
+                  onChange={handleInputChange}
+                  placeholder="YouTube or other video link"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Add a link to a walkthrough video of your PG accommodation
+                </p>
+              </div>
+              
+              {formData.images && formData.images.length > 0 && (
+                <div className="md:col-span-2 mt-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Selected Images ({formData.images.length})</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                    {Array.from(formData.images).slice(0, 10).map((image, index) => (
+                      <div key={index} className="aspect-square bg-gray-100 rounded-md overflow-hidden">
+                        <img 
+                          src={URL.createObjectURL(image)} 
+                          alt={`Preview ${index + 1}`} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="w-full max-w-4xl mx-auto py-4 md:py-8 px-4 md:px-6">
+      {!showPreview ? (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Create PG Listing</h1>
+            <p className="text-gray-500 mb-6">Fill in the details to list your PG accommodation</p>
+            
+            <div className="mb-8">
+              <ProgressTracker 
+                currentStep={STEPS[currentStep]} 
+                totalSteps={Object.keys(STEPS).length}
+                labels={STEP_LABELS}
+              />
+            </div>
+          </div>
+
+          {renderStepContent()}
+          
+          <div className="flex justify-between pt-4">
+            {currentStep !== 'basic' && (
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={prevStep}
+                className="border-purple-200 text-purple-600 hover:bg-purple-50"
+              >
+                Back
+              </Button>
+            )}
+            
+            <Button 
+              type="button" 
+              onClick={nextStep}
+              className={`bg-purple-600 hover:bg-purple-700 ml-auto flex items-center gap-2 ${currentStep === 'basic' ? 'ml-0' : ''}`}
+            >
+              {currentStep === 'media' ? 'Preview Listing' : 'Next'}
+              {currentStep !== 'media' && <ChevronRight className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-8 transition-all duration-500">
           {/* Preview Section */}
-          <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-md border border-gray-100">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
               <h2 className="text-2xl font-bold text-gray-900">Preview PG Listing</h2>
               <Button 
                 variant="outline"
@@ -712,7 +954,7 @@ const PGListingForm: React.FC = () => {
                 </h3>
                 <Separator className="mb-4" />
                 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <p className="text-sm font-medium text-gray-500">PG Name</p>
                     <p className="text-base">{formData.pgName}</p>
@@ -724,7 +966,7 @@ const PGListingForm: React.FC = () => {
                   </div>
                   
                   {formData.googleMapsLink && (
-                    <div className="md:col-span-2">
+                    <div className="sm:col-span-2">
                       <p className="text-sm font-medium text-gray-500">Google Maps Link</p>
                       <a 
                         href={formData.googleMapsLink} 
@@ -757,7 +999,7 @@ const PGListingForm: React.FC = () => {
                 </h3>
                 <Separator className="mb-4" />
                 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <p className="text-sm font-medium text-gray-500">Owner Name</p>
                     <p className="text-base">{formData.ownerName}</p>
@@ -782,7 +1024,7 @@ const PGListingForm: React.FC = () => {
                     </div>
                   )}
                   
-                  <div className="md:col-span-2">
+                  <div className="sm:col-span-2">
                     <p className="text-sm font-medium text-gray-500">Email</p>
                     <p className="text-base">{formData.email}</p>
                   </div>
@@ -799,7 +1041,7 @@ const PGListingForm: React.FC = () => {
                 
                 <div className="mb-4">
                   <p className="text-sm font-medium text-gray-500 mb-2">Monthly Rent</p>
-                  <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
                     {Object.entries(formData.sharingPrices).map(([key, value]) => {
                       if (value !== null && value > 0) {
                         return (
@@ -814,7 +1056,7 @@ const PGListingForm: React.FC = () => {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   {formData.deposit && (
                     <div>
                       <p className="text-sm font-medium text-gray-500">Security Deposit</p>
@@ -843,7 +1085,7 @@ const PGListingForm: React.FC = () => {
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Amenities</h3>
                 <Separator className="mb-4" />
                 
-                <div className="grid grid-cols-2 gap-2 mb-4 md:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-3 md:grid-cols-4">
                   {Object.entries(formData.amenities).map(([key, value]) => {
                     if (value) {
                       const label = key
@@ -861,7 +1103,7 @@ const PGListingForm: React.FC = () => {
                   })}
                 </div>
                 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <p className="text-sm font-medium text-gray-500">Bathroom Type</p>
                     <p className="text-base capitalize">{formData.bathroomType}</p>
@@ -916,7 +1158,7 @@ const PGListingForm: React.FC = () => {
             </div>
             
             <div className="mt-8 pt-6 border-t border-gray-200">
-              <Button onClick={handlePost} className="w-full bg-purple-600 hover:bg-purple-700 py-6 text-lg">
+              <Button onClick={handlePost} className="w-full bg-purple-600 hover:bg-purple-700 py-5 text-lg">
                 Post PG Listing
               </Button>
             </div>
